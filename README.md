@@ -10,11 +10,7 @@ A simple DevSecOps implementation featuring a health metrics dashboard with secu
 ## 🏗️ Architecture
 
 ```
-Web App (Node.js) → Prometheus (Metrics) → Grafana (Dashboard)
-                ↓
-            Docker (Containers)
-                ↓
-            Trivy (Security Scanning)
+/Users/nakulshivakumar/Desktop/devsecops-project/Project-Architecture.png
 ```
 
 ## 🚀 Quick Start
