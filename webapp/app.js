@@ -3,150 +3,226 @@ const client = require('prom-client');
 const path = require('path');
 
 const app = express();
-const PORT = 3000;
+const port = 3000;
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Create a Registry to register the metrics
+// Create a Registry to register metrics
 const register = new client.Registry();
 
-// Add a default label which is added to all metrics
-register.setDefaultLabels({
-  app: 'health-dashboard'
+// Add default metrics (memory, CPU, etc.)
+client.collectDefaultMetrics({ 
+  register,
+  timeout: 10000,
+  gcDurationBuckets: [0.001, 0.01, 0.1, 1, 2, 5], // These are the default buckets.
 });
 
-// Enable the collection of default metrics
-client.collectDefaultMetrics({ register });
-
-// Create custom metrics
+// Custom metrics
 const httpRequestsTotal = new client.Counter({
   name: 'http_requests_total',
   help: 'Total number of HTTP requests',
-  labelNames: ['method', 'route', 'status']
+  labelNames: ['method', 'route', 'status_code'],
+  registers: [register]
 });
 
 const httpRequestDuration = new client.Histogram({
   name: 'http_request_duration_seconds',
   help: 'Duration of HTTP requests in seconds',
-  labelNames: ['method', 'route', 'status'],
-  buckets: [0.1, 0.5, 1, 2, 5]
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  registers: [register]
+});
+
+const httpRequestsInProgress = new client.Gauge({
+  name: 'http_requests_in_progress',
+  help: 'Number of HTTP requests currently being processed',
+  registers: [register]
 });
 
 const appUptime = new client.Gauge({
   name: 'app_uptime_seconds',
-  help: 'Application uptime in seconds'
+  help: 'Application uptime in seconds',
+  registers: [register]
 });
 
-const activeUsers = new client.Gauge({
-  name: 'active_users_total',
-  help: 'Number of active users'
+const customMetrics = new client.Gauge({
+  name: 'app_custom_metric',
+  help: 'Custom application metric for testing',
+  labelNames: ['type'],
+  registers: [register]
 });
 
-const systemLoad = new client.Gauge({
-  name: 'system_load_average',
-  help: 'System load average'
-});
-
-// Register metrics
-register.registerMetric(httpRequestsTotal);
-register.registerMetric(httpRequestDuration);
-register.registerMetric(appUptime);
-register.registerMetric(activeUsers);
-register.registerMetric(systemLoad);
-
-// Start time for uptime calculation
-const startTime = Date.now();
-
-// Simulate some dynamic data
-let userCount = 0;
+// Update uptime every 10 seconds
 setInterval(() => {
-  userCount = Math.floor(Math.random() * 100) + 50;
-  activeUsers.set(userCount);
-  systemLoad.set(Math.random() * 4);
-}, 5000);
+  appUptime.set(process.uptime());
+  
+  // Update custom metrics with random values for testing
+  customMetrics.set({ type: 'random' }, Math.floor(Math.random() * 100));
+  customMetrics.set({ type: 'memory_usage_mb' }, process.memoryUsage().heapUsed / 1024 / 1024);
+  customMetrics.set({ type: 'cpu_usage_percent' }, process.cpuUsage().user / 1000000);
+}, 10000);
 
-// Middleware to track metrics
+// Middleware for metrics collection
 app.use((req, res, next) => {
   const start = Date.now();
+  
+  // Increment in-progress requests
+  httpRequestsInProgress.inc();
   
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000;
     const route = req.route ? req.route.path : req.path;
     
+    // Record metrics
     httpRequestsTotal.labels(req.method, route, res.statusCode).inc();
     httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
+    
+    // Decrement in-progress requests
+    httpRequestsInProgress.dec();
   });
   
   next();
 });
 
-// Routes
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Serve static files
+app.use(express.static('public'));
 
-app.get('/api/health', (req, res) => {
-  const uptime = process.uptime();
-  const memoryUsage = process.memoryUsage();
-  
-  res.json({
-    status: 'healthy',
-    uptime: uptime,
+// API Routes
+app.get('/api/time', (req, res) => {
+  res.json({ 
     timestamp: new Date().toISOString(),
-    memory: {
-      rss: Math.round(memoryUsage.rss / 1024 / 1024) + ' MB',
-      heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + ' MB',
-      heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + ' MB'
-    },
-    environment: process.env.NODE_ENV || 'development',
-    activeUsers: userCount,
-    systemLoad: (Math.random() * 4).toFixed(2)
+    server_time: new Date().toLocaleString(),
+    uptime: process.uptime(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
   });
 });
 
 app.get('/api/stats', (req, res) => {
-  const uptime = process.uptime();
-  const memoryUsage = process.memoryUsage();
+  const memUsage = process.memoryUsage();
+  const cpuUsage = process.cpuUsage();
   
   res.json({
-    uptime: Math.floor(uptime),
-    memoryUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
-    memoryTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
-    activeUsers: userCount,
-    systemLoad: (Math.random() * 4).toFixed(2),
-    requestsPerMinute: Math.floor(Math.random() * 1000) + 500,
-    errorRate: (Math.random() * 5).toFixed(1),
-    responseTime: (Math.random() * 200 + 50).toFixed(0)
+    memory_usage: {
+      rss: memUsage.rss,
+      heapTotal: memUsage.heapTotal,
+      heapUsed: memUsage.heapUsed,
+      external: memUsage.external,
+      arrayBuffers: memUsage.arrayBuffers
+    },
+    cpu_usage: {
+      user: cpuUsage.user,
+      system: cpuUsage.system
+    },
+    version: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    node_env: process.env.NODE_ENV || 'development',
+    pid: process.pid,
+    uptime: process.uptime(),
+    load_average: require('os').loadavg(),
+    free_memory: require('os').freemem(),
+    total_memory: require('os').totalmem()
   });
 });
 
-// Legacy health endpoint (for backward compatibility)
-app.get('/health', (req, res) => {
-  res.redirect('/api/health');
+app.get('/api/random', (req, res) => {
+  res.json({
+    random_number: Math.floor(Math.random() * 1000),
+    quote: "DevSecOps in action!",
+    generated_at: new Date().toISOString(),
+    request_id: Math.random().toString(36).substring(7)
+  });
 });
 
-// Metrics endpoint for Prometheus
-app.get('/metrics', async (req, res) => {
-  // Update uptime metric
-  appUptime.set((Date.now() - startTime) / 1000);
+app.get('/api/test-load', (req, res) => {
+  // Simulate some work
+  const iterations = Math.floor(Math.random() * 1000000);
+  let sum = 0;
+  for (let i = 0; i < iterations; i++) {
+    sum += Math.random();
+  }
   
+  res.json({
+    message: 'Load test completed',
+    iterations,
+    result: sum,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const healthData = {
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    pid: process.pid,
+    version: process.version,
+    environment: process.env.NODE_ENV || 'development'
+  };
+  
+  res.status(200).json(healthData);
+});
+
+// Readiness check
+app.get('/ready', (req, res) => {
+  res.status(200).json({
+    status: 'ready',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
   res.set('Content-Type', register.contentType);
-  res.end(await register.metrics());
+  try {
+    const metrics = await register.metrics();
+    res.end(metrics);
+  } catch (error) {
+    res.status(500).end(error.message);
+  }
 });
 
-// Simulate some load for demo purposes
-app.get('/simulate-load', (req, res) => {
-  // Simulate some processing time
-  const delay = Math.random() * 1000;
-  setTimeout(() => {
-    res.json({ message: 'Load simulated', delay: delay });
-  }, delay);
+// Main route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Health Dashboard running on port ${PORT}`);
-  console.log(`Dashboard: http://localhost:${PORT}`);
-  console.log(`API Health: http://localhost:${PORT}/api/health`);
-  console.log(`Metrics: http://localhost:${PORT}/metrics`);
+// Error handling
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    path: req.path,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  process.exit(0);
+});
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`DevSecOps webapp running on port ${port}`);
+  console.log(`Health check: http://localhost:${port}/health`);
+  console.log(`Metrics: http://localhost:${port}/metrics`);
+  console.log(`API endpoints:`);
+  console.log(`  - /api/time`);
+  console.log(`  - /api/stats`);
+  console.log(`  - /api/random`);
+  console.log(`  - /api/test-load`);
 });
