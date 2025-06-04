@@ -9,7 +9,7 @@ A simple DevSecOps implementation featuring a health metrics dashboard with secu
 
 ## 🏗️ Architecture
 
-https://github.com/nshivakumar1/devsecops-project/blob/main/Project-Architecture.png
+![alt text](https://github.com/nshivakumar1/devsecops-project/blob/main/Project-Architecture.png)
 
 ## 🚀 Quick Start
 
