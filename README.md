@@ -11,6 +11,12 @@ A simple DevSecOps implementation featuring a health metrics dashboard with secu
 
 ![alt text](https://github.com/nshivakumar1/devsecops-project/blob/main/Project-Architecture.png)
 
+## Screenshots
+! [alt text] (https://github.com/nshivakumar1/devsecops-project/blob/main/Screenshots/Dashboard%20Screenshot.png)
+! [alt text] (https://github.com/nshivakumar1/devsecops-project/blob/main/Screenshots/Github%20Actions-successful%20deployment.png)
+! [alt text] (https://github.com/nshivakumar1/devsecops-project/blob/main/Screenshots/Grafana%20Dashboard.png)
+! [alt text] (https://github.com/nshivakumar1/devsecops-project/blob/main/Screenshots/Github%20Actions%20Failure%20Deployments.png)
+
 ## 🚀 Quick Start
 
 ```bash
